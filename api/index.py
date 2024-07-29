@@ -1,60 +1,52 @@
-from fastapi import FastAPI, HTTPException
-import aiohttp
-import logging
-
-BASE_URL = 'https://fragment.com/'
-DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2311.135 Safari/537.36 Edge/12.246'
+from fastapi import FastAPI, HTTPException, Query, Request
+from pydantic import BaseModel
+import requests
+import random
+import string
 
 app = FastAPI()
-logging.basicConfig(level=logging.INFO)
 
-class Telegram:
-    async def get_user(self, username: str):
-        url = f"{BASE_URL}username/{username}"
-        headers = {
-            'User-Agent': DEFAULT_USER_AGENT,
-            'X-Aj-Referer': f"{BASE_URL}?query={username}",
-            'Accept': 'application/json, text/javascript, */*; q=0.01',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'X-Requested-With': 'XMLHttpRequest',
-            'Connection': 'keep-alive',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
-            'TE': 'trailers'
-        }
+class UsernameRequest(BaseModel):
+    username: str = None
 
-        async with aiohttp.ClientSession() as session:
-            try:
-                async with session.get(url, headers=headers) as response:
-                    response.raise_for_status()
-                    response_json = await response.json()
-            except aiohttp.ClientError as e:
-                logging.error(f"HTTP error fetching data: {e}")
-                return None
-            except Exception as e:
-                logging.error(f"Unexpected error: {e}")
-                return None
-            
-            if 'h' not in response_json:
-                return 'Available'
-            
-            h_data = response_json['h']
-            status = h_data.split('tm-section-header-status')[1].split('">')[0].strip()
-            status_mapping = {
-                'tm-status-taken': 'Taken',
-                'tm-status-avail': 'Auctioned or for sale',
-                'tm-status-unavail': 'Sold'
-            }
+def generate_random_username(length=8):
+    """Generate a random username with diverse characters."""
+    characters = string.ascii_letters + string.digits + '_'
+    return ''.join(random.choices(characters, k=length))
 
-            return status_mapping.get(status, 'Unknown')
+def check_username_validity(username):
+    """Check if the provided username is available."""
+    url = f"https://t.me/{username}"
+    response = requests.get(url)
+    if response.status_code == 200:
+        response_text = response.text
+        if "<div class=\"tgme_page_description\">" in response_text:
+            return False
+        else:
+            return True
+    else:
+        return False
 
-@app.get("/username/{username}")
-async def check_username(username: str):
-    tg = Telegram()
-    status = await tg.get_user(username)
-    if status is None:
-        logging.error("Failed to fetch user data")
-        raise HTTPException(status_code=500, detail="Internal Server Error")
-    return {"username": username, "status": status}
+@app.get("/username")
+@app.post("/username")
+async def get_username(request: Request, data: UsernameRequest = None):
+    """Check if a username is available or generate a random username."""
+    if request.method == "POST":
+        if data and data.username:
+            username = data.username
+        else:
+            username = generate_random_username()
+    else:
+        username = Query(None, description="Username to check")
+
+    if username:
+        available = check_username_validity(username)
+    else:
+        username = generate_random_username()
+        available = not check_username_validity(username)
+
+    return {
+        "available": available,
+        "username": username,
+        "credit": "@Teleservices_Api"
+    }
