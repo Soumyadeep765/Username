@@ -39,11 +39,10 @@ async def get_username(request: Request, data: UsernameRequest = None):
     else:
         username = Query(None, description="Username to check")
 
-    if username:
-        available = check_username_validity(username)
-    else:
+    if username is None:
         username = generate_random_username()
-        available = not check_username_validity(username)
+
+    available = check_username_validity(username)
 
     return {
         "available": available,
